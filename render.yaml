@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: workdesk-api
+    env: node
+    plan: free
+    buildCommand: "npm install"
+    startCommand: "node server.mjs"
+    autoDeploy: true
+    envVars:
+      - key: DELAY_MS
+        value: "400"
+      - key: DELAY_JITTER
+        value: "200"
