@@ -8,6 +8,6 @@ services:
     autoDeploy: true
     envVars:
       - key: DELAY_MS
-        value: "400"
+        value: "50"
       - key: DELAY_JITTER
         value: "200"
