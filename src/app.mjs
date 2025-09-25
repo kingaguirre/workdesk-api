@@ -9,8 +9,54 @@ const PORT = Number(process.env.PORT ?? 4000);
 const BASE_DELAY = Number.isFinite(Number(process.env.DELAY_MS)) ? Number(process.env.DELAY_MS) : 100;
 const JITTER = Number.isFinite(Number(process.env.DELAY_JITTER)) ? Number(process.env.DELAY_JITTER) : 50;
 
+// ------------- CORS (explicit allowlist; Zscaler-safe) -------------
+const parseOrigins = (s) =>
+  (s ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+// Comma-separated env on Render, e.g. "http://localhost:3000,https://your-frontend.com"
+const allowedOrigins = new Set(
+  parseOrigins(process.env.ALLOWED_ORIGINS)
+    .concat([
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "http://localhost:3002",
+      "http://localhost:3003",
+      "http://localhost:3004",
+      "http://localhost:3005",
+      "http://localhost:3006",
+      "http://localhost:30067",
+      "http://127.0.0.1:3000",
+      "http://hklvadapp5057.tx.standardchartered.com"
+    ]) // dev defaults; keep/remove as you like
+);
+
+// Flip to true only if you actually send browser cookies/Authorization
+const allowCredentials = String(process.env.CREDENTIALS ?? "false").toLowerCase() === "true";
+
+const corsOptions = {
+  origin(origin, cb) {
+    // allow same-origin / non-browser tools (no Origin header)
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.has(origin)) return cb(null, true);
+    return cb(new Error(`CORS: Origin not allowed: ${origin}`));
+  },
+  credentials: allowCredentials, // when true, ACAO must be exact (no '*')
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+  exposedHeaders: ["Content-Type"],
+  maxAge: 86400,
+};
+// -------------------------------------------------------------------
+
 const app = express();
-app.use(cors());
+
+app.use(cors(corsOptions));
+// Ensure preflight never 404s (important behind Zscaler)
+app.options("*", cors(corsOptions));
+
 app.use(express.json());
 
 // ---------- delay middleware ----------
