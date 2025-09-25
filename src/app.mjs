@@ -787,7 +787,4 @@ app.get("/txn/id/:id/finances/processed", (req, res) => {
   return res.json(buildFinanceProcessed(row));
 });
 
-
-app.listen(PORT, () => {
-  console.log(`Local API http://localhost:${PORT}  (delay ~${BASE_DELAY}ms ± ${JITTER}ms)`);
-});
+export default app;
