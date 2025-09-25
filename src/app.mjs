@@ -5,57 +5,73 @@
 import express from "express";
 import cors from "cors";
 
-const PORT = Number(process.env.PORT ?? 4000);
 const BASE_DELAY = Number.isFinite(Number(process.env.DELAY_MS)) ? Number(process.env.DELAY_MS) : 100;
 const JITTER = Number.isFinite(Number(process.env.DELAY_JITTER)) ? Number(process.env.DELAY_JITTER) : 50;
 
-// ------------- CORS (explicit allowlist; Zscaler-safe) -------------
+const app = express();
+
 const parseOrigins = (s) =>
   (s ?? "")
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
 
-// Comma-separated env on Render, e.g. "http://localhost:3000,https://your-frontend.com"
-const allowedOrigins = new Set(
-  parseOrigins(process.env.ALLOWED_ORIGINS)
-    .concat([
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "http://localhost:3002",
-      "http://localhost:3003",
-      "http://localhost:3004",
-      "http://localhost:3005",
-      "http://localhost:3006",
-      "http://localhost:30067",
-      "http://127.0.0.1:3000",
-      "http://hklvadapp5057.tx.standardchartered.com"
-    ]) // dev defaults; keep/remove as you like
-);
+// Optional exact origins from env (comma-separated string)
+const envAllowed = new Set(parseOrigins(process.env.ALLOWED_ORIGINS));
 
-// Flip to true only if you actually send browser cookies/Authorization
-const allowCredentials = String(process.env.CREDENTIALS ?? "false").toLowerCase() === "true";
+// Allow null origin? (iframes/devtools/corp proxies sometimes send Origin: null)
+const allowNullOrigin =
+  String(process.env.ALLOW_NULL_ORIGIN ?? "false").toLowerCase() === "true";
+
+// If you want to allow any subdomain under tx.standardchartered.com, use the wildcard below.
+// If you want to keep it tight to just hklvadapp5057, keep the single-host regex only.
+const ALLOW_PATTERNS = [
+  /^https?:\/\/localhost(?::\d+)?$/i,
+  /^https?:\/\/127\.0\.0\.1(?::\d+)?$/i,
+  // EITHER keep only this host:
+  /^https?:\/\/hklvadapp5057\.tx\.standardchartered\.com(?::\d+)?$/i,
+  // OR, if needed later, allow any subdomain under tx.standardchartered.com:
+  // /^https?:\/\/([a-z0-9-]+\.)*tx\.standardchartered\.com(?::\d+)?$/i,
+];
+
+// Flip to true only if browser calls include cookies/Authorization with fetch/axios
+const allowCredentials =
+  String(process.env.CREDENTIALS ?? "false").toLowerCase() === "true";
+
+function isOriginAllowed(origin) {
+  if (!origin) return true;            // curl/server-to-server
+  if (origin === "null") return allowNullOrigin;
+  if (envAllowed.has(origin)) return true;
+  return ALLOW_PATTERNS.some((re) => re.test(origin));
+}
 
 const corsOptions = {
   origin(origin, cb) {
-    // allow same-origin / non-browser tools (no Origin header)
-    if (!origin) return cb(null, true);
-    if (allowedOrigins.has(origin)) return cb(null, true);
-    return cb(new Error(`CORS: Origin not allowed: ${origin}`));
+    const ok = isOriginAllowed(origin);
+    if (!ok) {
+      console.warn(`[CORS] Blocked Origin: ${origin}`);
+      return cb(null, false);          // respond without ACAO (browser will block)
+    }
+    return cb(null, true);
   },
-  credentials: allowCredentials, // when true, ACAO must be exact (no '*')
+  credentials: allowCredentials,       // if true, ACAO must echo the Origin (no "*")
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
   exposedHeaders: ["Content-Type"],
   maxAge: 86400,
+  optionsSuccessStatus: 204,
 };
-// -------------------------------------------------------------------
 
-const app = express();
+// (optional) tiny logger to see the Origin your browser actually sends
+app.use((req, _res, next) => {
+  if (req.method === "OPTIONS" || req.path.startsWith("/workdesk") || req.path.startsWith("/txn")) {
+    console.log(`[CORS dbg] ${req.method} ${req.path} Origin=${req.headers.origin ?? "(none)"}`);
+  }
+  next();
+});
 
 app.use(cors(corsOptions));
-// Ensure preflight never 404s (important behind Zscaler)
-app.options("*", cors(corsOptions));
+app.options("*", cors(corsOptions));   // ensure preflight never 404s
 
 app.use(express.json());
 
